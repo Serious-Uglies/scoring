@@ -1,10 +1,11 @@
 scoring_config = scoring_config or {}
 scoring_config.bomb_check_interval_seconds = scoring_config.bomb_check_interval_seconds or 0.01
 scoring_config.defaut_scoring = scoring_config.default_scoring or {
-    falloff = 'linear',
+    falloff = 'stepped',
     thresholds = {
         [5] = 100,
         [21] = 50,
+        [30] = 30,
         [45] = 10,
         [60] = 0
     }
@@ -88,13 +89,35 @@ local function get_distance(a, b)
     return math.sqrt(math.pow(x, 2) + math.pow(y, 2) + math.pow(z, 2))
 end
 
-local function get_score_linear_falloff(scoring, distance)
+local function sort_thresholds(scoring)
     local sorted_thresholds = {}
     for d, s in pairs(scoring.thresholds) do
         table.insert(sorted_thresholds, { max_distance = d, max_score = s })
     end
 
     table.sort(sorted_thresholds, function (a, b) return a.max_score > b.max_score end)
+
+    return sorted_thresholds
+end
+
+
+local function get_score_stepped_falloff(scoring, distance)
+    local sorted_thresholds = sort_thresholds(scoring)
+
+    for _, threshold in ipairs(sorted_thresholds) do
+        local max_distance = threshold.max_distance
+        local max_score = threshold.max_score
+
+        if distance <= max_distance then
+            return max_score
+        end
+    end
+
+    return 0
+end
+
+local function get_score_linear_falloff(scoring, distance)
+    local sorted_thresholds = sort_thresholds(scoring)
 
     local prev_distance = nil
     local prev_score = nil
@@ -125,8 +148,12 @@ end
 local function get_score(scoring, distance)
     local score = 0
 
-    if scoring.falloff == 'linear' or scoring.falloff == nil then
+    if type(scoring.falloff) == 'function' then
+        score = scoring.falloff(scoring, distance)
+    elseif scoring.falloff == 'linear' then
         score = get_score_linear_falloff(scoring, distance)
+    else
+        score = get_score_stepped_falloff(scoring, distance)
     end
 
     -- There is no built-in round function
